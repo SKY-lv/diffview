@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DiffView - 文本对比工具</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,'Segoe UI',sans-serif;background:#0d1117;color:#c9d1d9;min-height:100vh;}
+.app{display:flex;flex-direction:column;height:100vh;}
+.header{padding:12px 20px;background:#161b22;border-bottom:1px solid #30363d;}
+.main{flex:1;display:grid;grid-template-rows:1fr auto;gap:0;overflow:hidden;}
+.editors{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:#30363d;}
+.editor-panel{display:flex;flex-direction:column;background:#0d1117;}
+.panel-header{padding:10px 16px;background:#161b22;border-bottom:1px solid #30363d;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:space-between;}
+.editor{flex:1;overflow:hidden;}
+.editor textarea{width:100%;height:100%;background:none;border:none;color:#c9d1d9;padding:16px;font-family:'Courier New',monospace;font-size:13px;resize:none;line-height:1.5;}
+.editor textarea:focus{outline:none;}
+.diff-panel{background:#161b22;border-top:1px solid #30363d;display:flex;flex-direction:column;max-height:300px;}
+.diff-header{padding:10px 16px;background:#21262d;border-bottom:1px solid #30363d;font-size:12px;font-weight:600;}
+.diff-content{flex:1;overflow:auto;padding:12px;font-family:'Courier New',monospace;font-size:13px;line-height:1.5;}
+.diff-line{display:flex;}
+.diff-line .num{min-width:40px;color:#6e7681;text-align:right;padding-right:12px;user-select:none;}
+.diff-line.add{background:#0d4a0d33;}
+.diff-line.add .num{color:#3fb950;}
+.diff-line.del{background:#4a0d0d33;}
+.diff-line.del .num{color:#f85149;}
+.diff-line .text{flex:1;white-space:pre;}
+.btn{padding:6px 12px;background:#21262d;border:1px solid #30363d;border-radius:6px;color:#c9d1d9;cursor:pointer;font-size:12px;transition:all 0.15s;}
+.btn:hover{border-color:#58a6ff;}
+.btn-primary{background:#238636;border-color:#238636;color:#fff;}
+.stats{display:flex;gap:16px;padding:10px 16px;background:#21262d;font-size:12px;}
+.stats .add{color:#3fb950;} .stats .del{color:#f85149;}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <h1 style="font-size:1.1em">DiffView - 文本对比</h1>
+  </div>
+  
+  <div class="main">
+    <div class="editors">
+      <div class="editor-panel">
+        <div class="panel-header">
+          <span>原始文本</span>
+          <button class="btn" onclick="pasteLeft()">粘贴</button>
+        </div>
+        <div class="editor">
+          <textarea id="left" oninput="compare()">function hello() {
+  console.log('Hello');
+  return true;
+}
+
+const data = {
+  name: 'old',
+  value: 100
+};</textarea>
+        </div>
+      </div>
+      
+      <div class="editor-panel">
+        <div class="panel-header">
+          <span>修改后文本</span>
+          <button class="btn" onclick="pasteRight()">粘贴</button>
+        </div>
+        <div class="editor">
+          <textarea id="right" oninput="compare()">function hello(name) {
+  console.log('Hello, ' + name);
+  return true;
+}
+
+const data = {
+  name: 'new',
+  value: 200,
+  extra: true
+};</textarea>
+        </div>
+      </div>
+    </div>
+    
+    <div class="diff-panel">
+      <div class="diff-header">
+        <span>差异对比</span>
+        <button class="btn btn-primary" style="float:right" onclick="compare()">刷新对比</button>
+      </div>
+      <div class="stats" id="stats">
+        <span>新增: <span class="add" id="add-count">0</span></span>
+        <span>删除: <span class="del" id="del-count">0</span></span>
+        <span>相同: <span id="same-count">0</span></span>
+      </div>
+      <div class="diff-content" id="diff"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const leftEl = document.getElementById('left');
+const rightEl = document.getElementById('right');
+const diffEl = document.getElementById('diff');
+
+function compare() {
+  const left = leftEl.value.split('\n');
+  const right = rightEl.value.split('\n');
+  
+  const diff = computeDiff(left, right);
+  renderDiff(diff);
+}
+
+function computeDiff(left, right) {
+  // Simple LCS-based diff
+  const result = [];
+  const lcs = [];
+  
+  // Build LCS matrix
+  const m = left.length, n = right.length;
+  const dp = Array(m + 1).fill(0).map(() => Array(n + 1).fill(0));
+  
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (left[i - 1] === right[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1] + 1;
+      } else {
+        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+  }
+  
+  // Backtrack to find diff
+  let i = m, j = n;
+  const changes = [];
+  
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && left[i - 1] === right[j - 1]) {
+      changes.unshift({ type: 'same', text: left[i - 1], leftNum: i, rightNum: j });
+      i--; j--;
+    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+      changes.unshift({ type: 'add', text: right[j - 1], rightNum: j });
+      j--;
+    } else if (i > 0) {
+      changes.unshift({ type: 'del', text: left[i - 1], leftNum: i });
+      i--;
+    }
+  }
+  
+  return changes;
+}
+
+function renderDiff(diff) {
+  let addCount = 0, delCount = 0, sameCount = 0;
+  
+  let html = '';
+  diff.forEach(line => {
+    const cls = line.type === 'add' ? 'add' : line.type === 'del' ? 'del' : '';
+    const leftNum = line.leftNum || '';
+    const rightNum = line.rightNum || '';
+    
+    html += `<div class="diff-line ${cls}">
+      <span class="num">${leftNum}</span>
+      <span class="num">${rightNum}</span>
+      <span class="text">${escapeHtml(line.text)}</span>
+    </div>`;
+    
+    if (line.type === 'add') addCount++;
+    else if (line.type === 'del') delCount++;
+    else sameCount++;
+  });
+  
+  diffEl.innerHTML = html;
+  
+  document.getElementById('add-count').textContent = addCount;
+  document.getElementById('del-count').textContent = delCount;
+  document.getElementById('same-count').textContent = sameCount;
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function pasteLeft() {
+  navigator.clipboard.readText().then(text => {
+    leftEl.value = text;
+    compare();
+  });
+}
+
+function pasteRight() {
+  navigator.clipboard.readText().then(text => {
+    rightEl.value = text;
+    compare();
+  });
+}
+
+compare();
+</script>
+</body>
+</html>
